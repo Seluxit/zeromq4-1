@@ -341,7 +341,11 @@ test_apps = \
 	test_bind_src_address \
 	test_metadata \
 	test_capabilities \
-	test_xpub_nodrop
+	test_xpub_nodrop \
+	test_disconnect_during_multipart
+
+test_disconnect_during_multipart_SOURCES = tests/test_disconnect_during_multipart.cpp
+test_disconnect_during_multipart_LDADD = libzmq.la
 
 test_system_SOURCES = tests/test_system.cpp
 test_system_LDADD = libzmq.la

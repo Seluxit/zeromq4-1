@@ -118,6 +118,9 @@ namespace zmq
         // Ensure the pipe wont block on receiving pipe_term.
         void set_nodelay ();
 
+        //  Enable waiting for last part during termination
+        void set_waiting_for_last_part ();
+
         //  Ask pipe to terminate. The termination will happen asynchronously
         //  and user will be notified about actual deallocation by 'terminated'
         //  event. If delay is true, the pending messages will be processed
@@ -197,6 +200,8 @@ namespace zmq
         //      term command from the peer as well.
         enum {
             active,
+            waiting_for_last_part,
+            waiting_for_last_part2,
             delimiter_received,
             waiting_for_delimiter,
             term_ack_sent,
@@ -211,6 +216,12 @@ namespace zmq
 
         //  Identity of the writer. Used uniquely by the reader side.
         blob_t identity;
+
+        //  Indication if we are in the middle of read multipart message
+        bool more_to_read;
+
+        //  Is wait for last part during termination enabled?
+        bool wait_for_last_part;
 
         //  Pipe's credential.
         blob_t credential;

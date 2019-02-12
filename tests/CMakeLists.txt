@@ -46,6 +46,7 @@ set(tests
         test_diffserv
         test_connect_rid
         test_xpub_nodrop
+	test_disconnect_during_multipart
 )
 if(NOT WIN32)
   list(APPEND tests

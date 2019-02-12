@@ -809,8 +809,10 @@ int zmq::socket_base_t::term_endpoint (const char *addr_)
 
     for (endpoints_t::iterator it = range.first; it != range.second; ++it) {
         //  If we have an associated pipe, terminate it.
-        if (it->second.second != NULL)
+        if (it->second.second != NULL) {
+            it->second.second->set_waiting_for_last_part ();
             it->second.second->terminate (false);
+        }
         term_child (it->second.first);
     }
     endpoints.erase (range.first, range.second);

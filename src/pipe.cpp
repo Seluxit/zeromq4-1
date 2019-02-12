@@ -88,6 +88,8 @@ zmq::pipe_t::pipe_t (object_t *parent_, upipe_t *inpipe_, upipe_t *outpipe_,
     sink (NULL),
     state (active),
     delay (true),
+    more_to_read (false),
+    wait_for_last_part (false),
     conflate (conflate_)
 {
 }
@@ -129,7 +131,10 @@ bool zmq::pipe_t::check_read ()
 {
     if (unlikely (!in_active))
         return false;
-    if (unlikely (state != active && state != waiting_for_delimiter))
+    if (unlikely (state != active &&
+                  state != waiting_for_delimiter &&
+                  state != waiting_for_last_part &&
+                  state != waiting_for_last_part2))
         return false;
 
     //  Check if there's an item in the pipe.
@@ -141,6 +146,7 @@ bool zmq::pipe_t::check_read ()
     //  If the next item in the pipe is message delimiter,
     //  initiate termination process.
     if (inpipe->probe (is_delimiter)) {
+        more_to_read = false;
         msg_t msg;
         bool ok = inpipe->read (&msg);
         zmq_assert (ok);
@@ -155,12 +161,16 @@ bool zmq::pipe_t::read (msg_t *msg_)
 {
     if (unlikely (!in_active))
         return false;
-    if (unlikely (state != active && state != waiting_for_delimiter))
+    if (unlikely (state != active &&
+                  state != waiting_for_delimiter &&
+                  state != waiting_for_last_part &&
+                  state != waiting_for_last_part2))
         return false;
 
 read_message:
     if (!inpipe->read (msg_)) {
         in_active = false;
+        more_to_read = false;
         return false;
     }
 
@@ -175,6 +185,7 @@ read_message:
 
     //  If delimiter was read, start termination process of the pipe.
     if (msg_->is_delimiter ()) {
+        more_to_read = false;
         process_delimiter ();
         return false;
     }
@@ -184,6 +195,21 @@ read_message:
 
     if (lwm > 0 && msgs_read % lwm == 0)
         send_activate_write (peer, msgs_read);
+
+    more_to_read = msg_->flags () & msg_t::more;
+
+    //  Last part arrived, continue termination
+    if (!more_to_read && state == waiting_for_last_part) {
+        send_pipe_term (peer);
+        state = term_req_sent1;
+    }
+    //  Other side already send term_req, send our own and ack
+    else if (!more_to_read && state == waiting_for_last_part2) {
+        send_pipe_term (peer);
+        state = term_req_sent2;
+        outpipe = NULL;
+        send_pipe_term_ack (peer);
+    }
 
     return true;
 }
@@ -242,7 +268,7 @@ void zmq::pipe_t::flush ()
 
 void zmq::pipe_t::process_activate_read ()
 {
-    if (!in_active && (state == active || state == waiting_for_delimiter)) {
+    if (!in_active && (state == active || state == waiting_for_delimiter || state == waiting_for_last_part ||  state == waiting_for_last_part2)) {
         in_active = true;
         sink->read_activated (this);
     }
@@ -287,8 +313,9 @@ void zmq::pipe_t::process_hiccup (void *pipe_)
 void zmq::pipe_t::process_pipe_term ()
 {
     zmq_assert (state == active
-            ||  state == delimiter_received
-            ||  state == term_req_sent1);
+                ||  state == waiting_for_last_part
+                ||  state == delimiter_received
+                ||  state == term_req_sent1);
 
     //  This is the simple case of peer-induced termination. If there are no
     //  more pending messages to read, or if the pipe was configured to drop
@@ -303,6 +330,12 @@ void zmq::pipe_t::process_pipe_term ()
             outpipe = NULL;
             send_pipe_term_ack (peer);
         }
+    }
+
+    //  While waiting for last part other side initiated termination, as this pipe didn't read the last part yet
+    //  the ack will be sent when last part arrived
+    else if (state == waiting_for_last_part) {
+        state = waiting_for_last_part2;
     }
 
     //  Delimiter happened to arrive before the term command. Now we have the
@@ -367,13 +400,17 @@ void zmq::pipe_t::set_nodelay ()
     this->delay = false;
 }
 
+void zmq::pipe_t::set_waiting_for_last_part () {
+    this->wait_for_last_part = true;
+}
+
 void zmq::pipe_t::terminate (bool delay_)
 {
     //  Overload the value specified at pipe creation.
     delay = delay_;
 
     //  If terminate was already called, we can ignore the duplicit invocation.
-    if (state == term_req_sent1 || state == term_req_sent2)
+    if (state == term_req_sent1 || state == term_req_sent2 || state == waiting_for_last_part || state == waiting_for_last_part2)
         return;
 
     //  If the pipe is in the final phase of async termination, it's going to
@@ -381,7 +418,10 @@ void zmq::pipe_t::terminate (bool delay_)
     else
     if (state == term_ack_sent)
         return;
-
+    //  User is in the middle of read multipart message, delaying the termination
+    else if (state == active && more_to_read && wait_for_last_part) {
+        state = waiting_for_last_part;
+    }
     //  The simple sync termination case. Ask the peer to terminate and wait
     //  for the ack.
     else
