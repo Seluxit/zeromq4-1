@@ -107,7 +107,14 @@ int zmq::lb_t::sendpipe (msg_t *msg_, pipe_t **pipe_)
             break;
         }
 
-        zmq_assert (!more);
+        //SLX DEBUG zmq_assert (!more);
+        if(more) {
+            pipes[current]->rollback();
+            more = 0;
+            errno = EAGAIN;
+            return -1;
+        }
+
         active--;
         if (current < active)
             pipes.swap (current, active);
