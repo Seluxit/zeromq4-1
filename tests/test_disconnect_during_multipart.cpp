@@ -79,9 +79,54 @@ int main(int, char**) {
     rc = zmq_close (pub);
     assert (rc == 0);
 
+
+
+    void* rep = zmq_socket(ctx, ZMQ_ROUTER);
+    assert(rep != NULL);
+
+    rc = zmq_bind(rep, "tcp://*:234567");
+    assert(rc == 0);
+
+    void* req = zmq_socket(ctx, ZMQ_REQ);
+    assert(req != NULL);
+
+    const char* endpoint_req = "tcp://localhost:234567";
+    rc = zmq_connect(req, endpoint_req);
+    assert(rc == 0);
+
+    msleep(100);
+
+    rc = s_sendmore(req, "data in first frame");
+    assert(rc >= 0);
+
+    rc = s_send(req, "data in second frame");
+    assert(rc >= 0);
+
+    message = s_recv(rep);
+    assert(message);
+    printf("<%s>\n", message);
+    free(message);
+
+    rc = zmq_disconnect(req, endpoint_req);
+    assert(rc == 0);
+    printf("disconnected REQ socket\n");
+
+    printf("receiving part 2 of message: ");
+    /* => Assertion failed: !more (src/fq.cpp:117) */
+    message = s_recv(rep);
+    assert(message);
+    printf("<%s>\n", message);
+    free(message);
+
+    rc = zmq_close (rep);
+    assert (rc == 0);
+
+    rc = zmq_close (req);
+    assert (rc == 0);
+
+
     rc = zmq_ctx_shutdown (ctx);
     assert (rc == 0);
 
     return 0;
 }
-

@@ -159,4 +159,3 @@ zmq::blob_t zmq::fq_t::get_credential () const
     return last_in?
         last_in->get_credential (): saved_credential;
 }
-
